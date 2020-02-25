@@ -18,6 +18,12 @@ from model import poincare_root, poincare_translation
 from rsgd import RiemannianSGD
 from train import train
 from visualize import *
+from coldict import *
+
+import os
+import os.path
+# from pathlib import Path
+
 
 import timeit
 
@@ -31,8 +37,12 @@ if __name__ == "__main__":
 		parser.add_argument('--dest', help='Write results', type=str, default='results/')
 
 		parser.add_argument('--labels', help='has labels', type=int, default=1)
+		parser.add_argument('--mode', help='Mode: features or KNN', type=str, default='features')
+
 		parser.add_argument('--normalize', help='Apply z-transform to the data', type=int, default=0)
 		parser.add_argument('--pca', help='Apply pca for data preprocessing (if pca=0, no pca)', type=int, default=0)
+
+		parser.add_argument('--distlocal', help='Distance function (minkowski, cosine)', type=str, default='minkowski')
 
 		parser.add_argument('--distfn', help='Distance function (Euclidean, MFImixSym, MFI, MFIsym)', type=str, default='MFIsym')
 		parser.add_argument('--distr', help='Target distribution (laplace, gaussian, student)', type=str, default='laplace')
@@ -49,147 +59,76 @@ if __name__ == "__main__":
 		parser.add_argument('--gamma', help='Bandwidth in low dimensional space', type=float, default=2.0)
 
 		# optimization parameters
-		parser.add_argument('--lr', help='Learning rate', type=float, default=0.01)
+		parser.add_argument('--lr', help='Learning rate', type=float, default=0.1)
 		parser.add_argument('--lrm', help='Learning rate multiplier', type=float, default=1.0)
-		parser.add_argument('--epochs', help='Number of epochs', type=int, default=10000)
+		parser.add_argument('--epochs', help='Number of epochs', type=int, default=5000)
 		parser.add_argument('--batchsize', help='Batchsize', type=int, default=-1)
-		parser.add_argument('--burnin', help='Duration of burnin', type=int, default=100)
+		parser.add_argument('--burnin', help='Duration of burnin', type=int, default=500)
 
-		parser.add_argument('--debugplot', help='Plot intermidiate embeddings every N iterations', type=int, default=0)
+		parser.add_argument('--seed', help='Duration of burnin', type=int, default=0)
+
+		parser.add_argument('--earlystop', help='Early stop  of training by epsilon. If 0, continue to max epochs', 
+			type=float, default=0.0001)
+
+		parser.add_argument('--debugplot', help='Plot intermidiate embeddings every N iterations', type=int, default=200)
 		
-		parser.add_argument('--cuda', help='Use GPU', type=int, default=0)
+		parser.add_argument('--cuda', help='Use GPU', type=int, default=1)
+
+		parser.add_argument('--logfile', help='Use GPU', type=str, default='Logs')
 
 		parser.add_argument('--tb', help='Tensor board', type=float, default=0)
 
 		opt = parser.parse_args()
 				
 		color_dict = None
+		
+		if "celegans" in opt.dset:
+			opt.root = 'Germline'
+			color_dict = color_dict_celegans
+
 		if opt.dset == "ToggleSwitch":
-				opt.root = "root"
+			opt.root = "root"
+
 		if "MyeloidProgenitors" in opt.dset:
-				opt.root = "root"
+			opt.root = "root"
+
 		if opt.dset == "krumsiek11_blobs":
-				opt.root = "root"
+			opt.root = "root"
+
 		if "Olsson" in opt.dset:
-				opt.root = "HSPC-1"
-				color_dict = {'Eryth': '#1F77B4',
-				'Gran': '#FF7F0E',
-				'HSPC-1': '#2CA02C',
-				'HSPC-2': '#D62728',
-				'MDP': '#9467BD',
-				'Meg': '#8C564B',
-				'Mono': '#E377C2',
-				'Multi-Lin': '#BCBD22',
-				'Myelocyte': '#17BECF'}
+			opt.root = "HSPC-1"
+			color_dict = color_dict_olsson
+
 		if "Paul" in opt.dset:
-				opt.root = "root"
-				if opt.dset == 'Paul_wo_proj':
-					opt.root = "6Ery"
-				color_dict = {'12Baso': '#0570b0', '13Baso': '#034e7b',
-					 '11DC': '#ffff33', 
-					 '18Eos': '#2CA02C', 
-					 '1Ery': '#fed976', '2Ery': '#feb24c', '3Ery': '#fd8d3c', '4Ery': '#fc4e2a', '5Ery': '#e31a1c', '6Ery': '#b10026',
-					 '9GMP': '#999999', '10GMP': '#4d4d4d',
-					 '19Lymph': '#35978f', 
-					 '7MEP': '#E377C2', 
-					 '8Mk': '#BCBD22', 
-					 '14Mo': '#4eb3d3', '15Mo': '#7bccc4',
-					 '16Neu': '#6a51a3','17Neu': '#3f007d',
-					 'root': '#000000'}
+			opt.root = "root"
+			if opt.dset == 'Paul_wo_proj':
+				opt.root = "6Ery"
+			color_dict = color_dict_paul
+
 		if opt.dset == "Moignard2015":
-				opt.root = "PS"
+			opt.root = "PS"			
+
 		if "Planaria" in opt.dset:
 			opt.root = "neoblast 1"
-			color_dict = {'neoblast 1': '#CCCCCC',
-			'neoblast 2': '#7f7f7f',
-			'neoblast 3': '#E6E6E6',
-			'neoblast 4': '#D6D6D6',
-			'neoblast 5': '#C7C7C7',
-			'neoblast 6': '#B8B8B8',
-			'neoblast 7': '#A8A8A8',
-			'neoblast 8': '#999999',
-			'neoblast 9': '#8A8A8A',
-			'neoblast 10':  '#7A7A7A',
-			'neoblast 11':  '#6B6B6B',
-			'neoblast 12':  '#5C5C5C',
-			'neoblast 13':  '#4D4D4D',
-			'epidermis DVb neoblast': 'lightsteelblue',
-			'pharynx cell type progenitors':  'slategray',
-			'spp-11+ neurons':  '#CC4C02',
-			'npp-18+ neurons':  '#EC7014',
-			'otf+ cells 1': '#993404',
-			'ChAT neurons 1': '#FEC44F',
-			'neural progenitors': '#FFF7BC',
-			'otf+ cells 2': '#662506',
-			'cav-1+ neurons': '#eec900',
-			'GABA neurons': '#FEE391',
-			'ChAT neurons 2': '#FE9929',
-			'muscle body':  'firebrick',
-			'muscle pharynx': '#CD5C5C',
-			'muscle progenitors': '#FF6347',
-			'secretory 1':  'mediumpurple',
-			'secretory 3':  'purple',
-			'secretory 4':  '#CBC9E2',
-			'secretory 2':  '#551a8b',
-			'early epidermal progenitors':  '#9ECAE1',
-			'epidermal neoblasts':  '#C6DBEF',
-			'activated early epidermal progenitors':  'lightblue',
-			'late epidermal progenitors 2': '#4292C6',
-			'late epidermal progenitors 1': '#6BAED6',
-			'epidermis DVb':  'dodgerblue',
-			'epidermis':  '#2171B5',
-			'pharynx cell type': 'royalblue',
-			'protonephridia': 'pink',
-			'ldlrr-1+ parenchymal cells': '#d02090',
-			'phagocytes': 'forestgreen',
-			'aqp+ parenchymal cells': '#cd96cd',
-			'pigment': '#cd6889',
-			'pgrn+ parenchymal cells':  'mediumorchid',
-			'psap+ parenchymal cells':  'deeppink',
-			'glia': '#cd69c9',
-			'goblet cells': 'yellow',
-			'parenchymal progenitors':  'hotpink',
-			'psd+ cells': 'darkolivegreen',
-			'gut progenitors':  'limegreen',
-			'interpolation': '#636363',
-			'interpolation2': '#999999'}
-		
+			color_dict = color_dict_planaria	
 
-		if opt.dset == 'WagnerScience2018':
-			cell_cell_edges = np.genfromtxt('datasets/cell_cell_edges.csv', dtype=int, delimiter=',')
-			cell_cell_edges -= 1  # our indexing starts with 0 as common in Python, C etc.
-			from scipy.sparse import coo_matrix
-			rows = cell_cell_edges[:, 0]
-			cols = cell_cell_edges[:, 1]
-			length = len(obs)
-			ones = np.ones(len(rows), np.uint32)
-			connectivities = coo_matrix((ones, (rows, cols)), shape=(length, length))
-			# make sure it's symmsetric
-			connectivities = connectivities + connectivities.T
-			connectivities = connectivities.toarray
+		# read and preprocess the dataset
+		features, labels = prepare_data(opt.path + opt.dset,
+																		with_labels=opt.labels,
+																		normalize=opt.normalize,
+																		n_pca=opt.pca)
 
-			from scipy.sparse import csgraph
-
-			L = csgraph.laplacian(connectivities, normed=False)
-			RFA = torch.Tensor(np.linalg.inv(L + np.eye(L.shape[0])))
-
-		else:
-
-			# read and preprocess the dataset
-			features, labels = prepare_data(opt.path + opt.dset,
-																			with_labels=opt.labels,
-																			normalize=opt.normalize,
-																			n_pca=opt.pca)
-
-			# compute matrix of RFA similarities
-			RFA = compute_rfa(features,
-												k_neighbours=opt.knn,
-												distfn=opt.distfn,
-												connected=opt.connected,
+		# compute matrix of RFA similarities
+		RFA = compute_rfa(features, mode=opt.mode,
+											k_neighbours=opt.knn,
+											distfn=opt.distfn,
+											distlocal= opt.distlocal,
+											connected=opt.connected,
 												sigma=opt.sigma)
 
 		if opt.batchsize < 0:
-			opt.batchsize = min(2000, int(len(RFA)/8))
+			opt.batchsize = min(512, int(len(RFA)/10))
+			print('batchsize = ', opt.batchsize)
 			# if opt.dset == "Moignard2015":
 			#     opt.batchsize = 1500
 		opt.lr = opt.batchsize / 16 * opt.lr
@@ -208,8 +147,8 @@ if __name__ == "__main__":
 			# build the indexed RFA dataset 
 		indices = torch.arange(len(RFA))
 		if opt.cuda:
-				indices = indices.cuda()
-				RFA = RFA.cuda()
+			indices = indices.cuda()
+			RFA = RFA.cuda()
 
 		dataset = TensorDataset(indices, RFA)
 
@@ -224,21 +163,40 @@ if __name__ == "__main__":
 																	cuda=opt.cuda)
 
 		# instantiate the Riemannian optimizer 
-		start = timeit.default_timer()
+		t_start = timeit.default_timer()
 		optimizer = RiemannianSGD(predictor.parameters(), lr=opt.lr)
 
 		# train predictor
-		embeddings, loss = train(predictor,
+		print('Starting training...')
+		embeddings, loss, epoch = train(predictor,
 														 dataset,
 														 optimizer,
 														 opt,
 														 fout=fout,
 														 labels=labels,
-														 tb=opt.tb)
+														 tb=opt.tb,
+														 earlystop=opt.earlystop,
+														 color_dict=color_dict)
 
 		np.savetxt(fout + '.csv', embeddings, delimiter=",")
 
-		titlename = f"loss = {loss:.3e}\ntime = {(timeit.default_timer() - start)/60:.3f} min"
+		t = timeit.default_timer() - t_start
+		titlename = f"loss = {loss:.3e}\ntime = {t/60:.3f} min"
+		print(titlename)
+
+		log_file = f'results/{opt.logfile}.csv'		
+		df_stats = pd.DataFrame(np.array([[opt.dset, opt.pca, opt.knn, opt.sigma, opt.gamma, opt.distlocal, 
+			loss, int(t), int(t/60), opt.seed, opt.cuda, opt.earlystop, epoch]]), 
+			columns = ['dataset', 'pca', 'knn', 'sigma', 'gamma', 'distance',
+			'loss', 'time (sec)', 'time (min)', 'seed', 'cuda', 'earlystop', 'max epochs'])
+
+		if os.path.isfile(log_file):
+			df_logs = pd.read_csv(log_file)
+			df_stats = pd.concat([df_logs, df_stats])
+
+		df_stats.to_csv(f'results/{opt.logfile}.csv', index=False, sep=',')
+
+
 		color_dict = plotPoincareDisc(embeddings.T,
 												 labels,
 												 fout,
@@ -247,6 +205,7 @@ if __name__ == "__main__":
 
 		# rotation
 		root_hat = poincare_root(opt, labels, features)   
+		print('Root:', root_hat)
 		if root_hat != -1:
 				titlename = '{0}\nloss = {1:.3e} rotated'.format(titlename, loss)
 
@@ -256,4 +215,4 @@ if __name__ == "__main__":
 				plot_poincare_disc(poincare_coord_new,
 													 labels=labels,
 													 coldict=color_dict,
-													 file_name=fout + '_rotated')
+													 file_name=fout + '_rotated', d1=9.5, d2=9.0)

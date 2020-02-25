@@ -6,7 +6,7 @@
 #
 import numpy as np
 from sklearn.cluster import *
-import scanpy.api as sc
+# import scanpy.api as sc
 
 from model import poincare_translation
 import matplotlib.pyplot as plt
@@ -20,19 +20,116 @@ import torch as th
 from fastdtw import fastdtw
 from coldict import *
 from scipy.spatial.distance import euclidean
+import scanpy.api as sc
 
 
-colors_palette = ['#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD', '#8C564B', '#E377C2', '#BCBD22', 
-        '#17BECF', '#40004b', '#762a83', '#9970ab', '#c2a5cf', '#e7d4e8', '#f7f7f7', '#d9f0d3', 
-        '#a6dba0', '#5aae61', '#1b7837', '#00441b', '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', 
-        '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f']
+sns.set_style('white', {'legend.frameon':True})
+
+colors_palette = ['#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD',
+                  '#8C564B', '#E377C2', '#BCBD22', '#17BECF', '#40004B',
+                  '#762A83', '#9970AB', '#C2A5CF', '#E7D4E8', '#F7F7F7',
+                  '#D9F0D3', '#A6DBA0', '#5AAE61', '#1B7837', '#00441B',
+                  '#8DD3C7', '#FFFFB3', '#BEBADA', '#FB8072', '#80B1D3',
+                  '#FDB462', '#B3DE69', '#FCCDE5', '#D9D9D9', '#BC80BD',
+                  '#CCEBC5', '#FFED6F', '#edf8b1', '#c7e9b4', '#7fcdbb',
+                  '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58']
+
+
+# colors_palette = ['#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD', '#8C564B', '#E377C2', '#BCBD22', 
+#         '#17BECF', '#40004b', '#762a83', '#9970ab', '#c2a5cf', '#e7d4e8', '#f7f7f7', '#d9f0d3', 
+#         '#a6dba0', '#5aae61', '#1b7837', '#00441b', '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', 
+#         '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f', '#CCEBC5', '#FFED6F', '#edf8b1', '#c7e9b4', '#7fcdbb',
+#                   '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58']
+
+def plot_poincare_disc(x, labels=None, title_name=None,
+    labels_name='labels', labels_order=None, labels_pos=None, labels_text=None,
+                       file_name=None, coldict=None,
+                       d1=4.5, d2=4.0, fs=9, ms=20,
+                       u=None, v=None, alpha=1.0,
+                       col_palette=plt.get_cmap("tab10"), print_labels=True,
+                       bbox=(1.3, 0.7), leg=True, ft='pdf'):    
+
+    idx = np.random.permutation(len(x))
+    df = pd.DataFrame(x[idx, :], columns=['pm1', 'pm2'])
     
+    fig = plt.figure(figsize=(d1, d2))
+    ax = plt.gca()
+    circle = plt.Circle((0, 0), radius=1,  fc='none', color='black')
+    ax.add_patch(circle)
+    ax.plot(0, 0, '.', c=(0, 0, 0), ms=4)
+    if title_name:
+        ax.set_title(title_name, fontsize=fs)
+
+    if not (labels is None):
+        df[labels_name] = labels[idx]
+        if labels_order is None:
+            labels_order = np.unique(labels)        
+        if coldict is None:
+            coldict = dict(zip(labels_order, col_palette[:len(labels)]))
+        sns.scatterplot(x="pm1", y="pm2", hue=labels_name, 
+                        hue_order=labels_order,
+                        palette=coldict,
+                        alpha=alpha, edgecolor="none",
+                        data=df, ax=ax, s=ms)
+        
+        if leg:
+            ax.legend(fontsize=fs, loc='outside', bbox_to_anchor=bbox, facecolor='white')
+        else:
+            ax.legend_.remove()
+            
+    else:
+        sns.scatterplot(x="pm1", y="pm2",
+                        data=df, ax=ax, s=ms)
+
+        if leg == False:
+            ax.legend_.remove()
+
+    if not (u is None):     
+        a, b = get_geodesic_parameters(u, v)        
+        circle_geo = plt.Circle((-a/2, -b/2), radius=np.sqrt(a**2/4 + b**2/4 - 1),  fc='none', color='grey')
+        ax.add_patch(circle_geo)
+
+    fig.tight_layout()
+    ax.axis('off')
+    ax.axis('equal') 
+
+    if print_labels:
+        if labels_text is None:
+            labels_list = np.unique(labels)
+        else:
+            labels_list = np.unique(labels_text)
+        if labels_pos is None:  
+            labels_pos = {}  
+            for l in labels_list:
+        #         i = np.random.choice(np.where(labels == l)[0])
+                ix_l = np.where(labels == l)[0]
+                Dl = poincare_distance(th.DoubleTensor(x[ix_l, :])).numpy()
+                i = ix_l[np.argmin(Dl.sum(axis=0))]
+                labels_pos[l] = i
+
+        for l in labels_list:    
+            ax.text(x[labels_pos[l], 0], x[labels_pos[l], 1], l, fontsize=fs)
+
+    ax.set_ylim([-1.01, 1.01])
+    ax.set_xlim([-1.01, 1.01]) 
+
+    plt.tight_layout()
+
+    if file_name:
+        if ft == 'png':            
+            plt.savefig(file_name + '.' + ft, format=ft, dpi=300)
+        else:
+            plt.savefig(file_name + '.' + ft, format=ft)
+
+    return labels_pos
+
 class PoincareMaps:
     def __init__(self, coordinates, cpalette=None):
         self.coordinates = coordinates
         self.distances = None       
         self.radius = np.sqrt(coordinates[:,0]**2 + coordinates[:,1]**2)
         self.iroot = np.argmin(self.radius)
+        self.labels_pos = None
         if cpalette is None:
             self.colors_palette = colors_palette
         else:
@@ -52,8 +149,10 @@ class PoincareMaps:
     def rotate(self):
         self.coordinates_rotated = poincare_translation(-self.coordinates[self.iroot, :], self.coordinates)     
 
-    def plot(self, pm_type='ori', labels=None, labels_name='labels', labels_order=None, coldict=None, file_name=None, title_name=None, 
-        zoom=None, show=True, d1=4.5, d2=4.0, fs=9, ms=20, bbox=(1.3, 0.7), u=None, v=None):                            
+    def plot(self, pm_type='ori', labels=None, 
+        labels_name='labels', print_labels=True, labels_text=None,
+        labels_order=None, coldict=None, file_name=None, title_name=None, alpha=1.0,
+        zoom=None, show=True, d1=4.5, d2=4.0, fs=9, ms=20, bbox=(1.3, 0.7), u=None, v=None, leg=True, ft='pdf'):                            
         if pm_type == 'ori':
             coordinates = self.coordinates
         
@@ -75,9 +174,11 @@ class PoincareMaps:
                 labels = labels[idx_zoom]
 
         
-        plot_poincare_disc(coordinates, labels=labels, labels_name=labels_name, labels_order=labels_order, 
-                       file_name=file_name, coldict=coldict, u=u, v=v,
-                       d1=d1, d2=d2, fs=fs, ms=ms, col_palette=self.colors_palette, bbox=bbox)
+        self.labels_pos = plot_poincare_disc(coordinates, title_name=title_name, 
+            print_labels=print_labels, labels_text=labels_text,
+            labels=labels, labels_name=labels_name, labels_order=labels_order, labels_pos = self.labels_pos,
+                       file_name=file_name, coldict=coldict, u=u, v=v, alpha=alpha,
+                       d1=d1, d2=d2, fs=fs, ms=ms, col_palette=self.colors_palette, bbox=bbox, leg=leg, ft=ft)
 
     def detect_lineages(self, n_lin=2, clustering_name='spectral', k=15, rotated=False):
         pc_proj = []
@@ -111,7 +212,7 @@ class PoincareMaps:
         self.clusters = clustering.labels_
 
 
-    def plot_distances(self, cell=None, pm_type='rot', eps=4.0, file_name=None, title_name=None, idx_zoom=None, show=False, fs=8, ms=3):
+    def plot_distances(self, cell=None, pm_type='rot', ss=10, eps=4.0, file_name=None, title_name=None, idx_zoom=None, show=False, fs=8, ms=3):
         if cell is None:
             cell = self.iroot
             
@@ -130,7 +231,7 @@ class PoincareMaps:
         plt.plot(0, 0, 'x', c=(0, 0, 0), ms=ms)
         if title_name:
             plt.title(title_name, fontsize=fs)
-        plt.scatter(coordinates[:, 0], coordinates[:, 1], c=mycmap, s=30, cmap=cm)
+        plt.scatter(coordinates[:, 0], coordinates[:, 1], c=mycmap, s=ss, cmap=cm)
         plt.plot(coordinates[cell, 0], coordinates[cell, 1], 'd', c='red')
 
         plt.plot(0, 0, 'x', c=(1, 1, 1), ms=ms)    
@@ -369,52 +470,6 @@ class PoincareMaps:
 
 
 
-def plot_poincare_disc(x, labels=None, labels_name='labels', labels_order=None, 
-                       file_name=None, coldict=None,
-                       d1=4.5, d2=4.0, fs=9, ms=20,
-                       u=None, v=None,
-                       col_palette=plt.get_cmap("tab10"), bbox=(1.3, 0.7)):    
-
-    idx = np.random.permutation(len(x))
-    df = pd.DataFrame(x[idx, :], columns=['pm1', 'pm2'])
-    
-    fig = plt.figure(figsize=(d1, d2))
-    ax = plt.gca()
-    circle = plt.Circle((0, 0), radius=1,  fc='none', color='black')
-    ax.add_patch(circle)
-    ax.plot(0, 0, '.', c=(0, 0, 0), ms=4)
-
-    if not (labels is None):
-        df[labels_name] = labels[idx]
-        if labels_order is None:
-            labels_order = np.unique(labels)        
-        if coldict is None:
-            coldict = dict(zip(labels_order, col_palette[:len(labels)]))
-        sns.scatterplot(x="pm1", y="pm2", hue=labels_name, 
-                        hue_order=labels_order,
-                        palette=coldict,
-                        alpha=1.0, edgecolor="none",
-                        data=df, ax=ax, s=ms)
-        ax.legend(fontsize=fs, loc='outside', bbox_to_anchor=bbox)
-            
-    else:
-        sns.scatterplot(x="pm1", y="pm2",
-                        data=df, ax=ax2, s=ms)
-
-    if not (u is None):     
-        a, b = get_geodesic_parameters(u, v)        
-        circle_geo = plt.Circle((-a/2, -b/2), radius=np.sqrt(a**2/4 + b**2/4 - 1),  fc='none', color='grey')
-        ax.add_patch(circle_geo)
-
-    fig.tight_layout()
-    ax.axis('off')
-    ax.axis('equal') 
-
-    ax.set_ylim([-1.01, 1.01])
-    ax.set_xlim([-1.01, 1.01]) 
-
-    if file_name:
-        plt.savefig(file_name + '.pdf', format='pdf')
 
 
 def get_geodesic_parameters(u, v, eps=1e-10):
@@ -477,7 +532,7 @@ def poincare_linspace(u, v, n_points=175):
             interpolated[:, 1] = y_2 
         elif max(x**2 + y_2**2) > 1:
             interpolated[:, 1] = y_1
-        elif all(y_1 < max(u[1], v[1])) and all(y_1 > min(u[1], v[1])):
+        elif (np.mean(y_1) <= max(u[1], v[1])) and (np.mean(y_1) >= min(u[1], v[1])):
             interpolated[:, 1] = y_1
         else:
             interpolated[:, 1] = y_2
@@ -849,6 +904,7 @@ def get_interpolated_coordinates(coordinates, labels, clusters, distances,
                     for i in range(n_starts):
                         u, v, iu, iv = get_closest(coordinates, distances, clusters, cluster_from=cl_from, cluster_to=cl_to, seed=seed)
                         points_list.append([iu, iv])
+    
     for p_pair in points_list:        
         u = coordinates[p_pair[0]]
         v = coordinates[p_pair[1]]
@@ -1001,7 +1057,7 @@ def plot_benchmark(coord, labels, method, fout, d1=2.5, d2=2.5, fs=9, ms=3):
     ax.set_yticks([])
     sns.scatterplot(x=axs_names[0], y=axs_names[1], hue='labels',
                     alpha=1.0, edgecolor="none",
-                    palette=color_dict,
+                    palette=None,
                     data=df, ax=ax, s=ms)
     ax.set_xlabel(axs_names[0], fontsize=fs)
     ax.set_ylabel(axs_names[1], fontsize=fs)
