@@ -36,8 +36,10 @@ def poincare_root(opt, labels, features):
             # medoids in Euclidean space
             D = pairwise_distances(features[head_idx, :], metric='euclidean')
             return head_idx[np.argmin(D.mean(axis=0))]
-        else:
+        elif len(head_idx) == 1:
             return head_idx[0]
+        else:
+            return -1
 
     return -1
 

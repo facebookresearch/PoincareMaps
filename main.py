@@ -216,3 +216,5 @@ if __name__ == "__main__":
 													 labels=labels,
 													 coldict=color_dict,
 													 file_name=fout + '_rotated', d1=9.5, d2=9.0)
+		else:
+			print("Can't perform rotation. Root node is not found.")
