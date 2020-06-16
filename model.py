@@ -28,9 +28,9 @@ def poincare_translation(v, x):
     return np.dot(np.diag(1. / b), a)
 
 
-def poincare_root(opt, labels, features):
-    if opt.root is not None:
-        head_idx = np.where(labels == opt.root)[0]
+def poincare_root(root_name, labels, features):
+    if root_name is not None:
+        head_idx = np.where(labels == root_name)[0]
 
         if len(head_idx) > 1:
             # medoids in Euclidean space

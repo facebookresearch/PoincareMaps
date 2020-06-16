@@ -12,15 +12,10 @@ from visualize import *
 from tqdm import tqdm
 
 from torch.utils.data import TensorDataset, DataLoader
-# from tensorboardX import SummaryWriter
 
 
-def train(model, data, optimizer, args, fout=None, labels=None, tb=0, earlystop=0.0, color_dict=None):
+def train(model, data, optimizer, args, fout=None, labels=None, earlystop=0.0, color_dict=None):
     loader = DataLoader(data, batch_size=args.batchsize, shuffle=True)
-
-    if tb:
-        print('Start TensorBoard')
-        writer = SummaryWriter()
 
     pbar = tqdm(range(args.epochs), ncols=80)
 
@@ -48,18 +43,10 @@ def train(model, data, optimizer, args, fout=None, labels=None, tb=0, earlystop=
             
             grad_norm.append(model.lt.weight.grad.data.norm().item())            
 
-            # if tb:
-            #     writer.add_scalar("data/train/error", loss.item(), n_iter)
-            #     writer.add_scalar("data/train/gradients", grad_norm[-1], n_iter)                
-
             n_iter += 1
 
         epoch_error /= len(loader)
         epoch_loss.append(epoch_error)
-
-        if tb:
-            writer.add_scalar("data/train/epoch_error", epoch_error, epoch)
-
         pbar.set_description("loss: {:.5f}".format(epoch_error))
 
         if epoch > 10:
@@ -100,8 +87,5 @@ def train(model, data, optimizer, args, fout=None, labels=None, tb=0, earlystop=
 
     delta = abs(epoch_loss[epoch] - epoch_loss[epoch-1])
     plot_training(epoch_loss, title_name=f'd={delta:.2e}', file_name=fout+'_loss', d1=4, d2=4)
-
-    if tb:
-        writer.close()
 
     return model.lt.weight.cpu().detach().numpy(), epoch_error, epoch

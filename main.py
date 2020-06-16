@@ -23,198 +23,265 @@ from coldict import *
 import os
 import os.path
 # from pathlib import Path
-
-
 import timeit
 
+class PoincareOptions:
+    def __init__(self, debugplot=False, epochs=500, batchsize=-1, lr=0.1, burnin=500, lrm=1.0, earlystop=0.0001, cuda=0):
+        self.debugplot = debugplot
+        self.batchsize = batchsize
+        self.epochs = epochs
+        self.lr =lr
+        self.lrm =lrm
+        self.burnin = burnin
+        self.debugplot = debugplot
+
+
+def compute_poincare_maps(features, labels, fout,
+                        mode='features', k_neighbours=15, 
+                        distlocal='minkowski', sigma=1.0, gamma=2.0,
+                        epochs = 300,
+                        color_dict=None, debugplot=False,
+                        batchsize=-1, lr=0.1, burnin=500, lrm=1.0, earlystop=0.0001, cuda=0):
+
+    RFA = compute_rfa(features, mode=mode,
+                                k_neighbours=k_neighbours,
+                                distlocal= distlocal,
+                                distfn='MFIsym',
+                                connected=True,
+                                sigma=sigma)
+
+    if batchsize < 0:
+        batchsize = min(512, int(len(RFA)/10))
+        print('batchsize = ', batchsize)
+    lr = batchsize / 16 * lr
+
+    indices = torch.arange(len(RFA))
+    if cuda:
+        indices = indices.cuda()
+        RFA = RFA.cuda()
+
+    dataset = TensorDataset(indices, RFA)
+
+    # instantiate our Embedding predictor
+    predictor = PoincareEmbedding(len(dataset), 2,
+                                                dist=PoincareDistance,
+                                                max_norm=1,
+                                                Qdist='laplace', 
+                                                lossfn = 'klSym',
+                                                gamma=gamma,
+                                                cuda=cuda)
+
+    t_start = timeit.default_timer()
+    optimizer = RiemannianSGD(predictor.parameters(), lr=lr)
+
+    opt = PoincareOptions(debugplot=debugplot, batchsize=batchsize, lr=lr, 
+        burnin=burnin, lrm=lrm, earlystop=earlystop, cuda=cuda, epochs=epochs)
+        # train predictor
+    print('Starting training...')
+    embeddings, loss, epoch = train(predictor,
+                                     dataset,
+                                     optimizer,
+                                     opt,
+                                     fout=fout,
+                                     labels=labels,
+                                     earlystop=earlystop,
+                                     color_dict=color_dict)
+
+    np.savetxt(fout + '.csv', embeddings, delimiter=",")
+    t = timeit.default_timer() - t_start
+    titlename = f"loss = {loss:.3e}\ntime = {t/60:.3f} min"
+    print(titlename)
+
+    return embeddings, titlename
+
+
 if __name__ == "__main__":
-		# parse arguments
-		parser = argparse.ArgumentParser(description='Poincare maps')
-		parser.add_argument('--dim', help='Embedding dimension', type=int, default=2)
+        # parse arguments
+        parser = argparse.ArgumentParser(description='Poincare maps')
+        parser.add_argument('--dim', help='Embedding dimension', type=int, default=2)
 
-		parser.add_argument('--path', help='Dataset to embed', type=str, default='datasets/')
-		parser.add_argument('--dset', help='Dataset to embed', type=str, default='ToggleSwitch')
-		parser.add_argument('--dest', help='Write results', type=str, default='results/')
+        parser.add_argument('--path', help='Dataset to embed', type=str, default='datasets/')
+        parser.add_argument('--dset', help='Dataset to embed', type=str, default='ToggleSwitch')
+        parser.add_argument('--dest', help='Write results', type=str, default='results/')
 
-		parser.add_argument('--labels', help='has labels', type=int, default=1)
-		parser.add_argument('--mode', help='Mode: features or KNN', type=str, default='features')
+        parser.add_argument('--labels', help='has labels', type=int, default=1)
+        parser.add_argument('--mode', help='Mode: features or KNN', type=str, default='features')
 
-		parser.add_argument('--normalize', help='Apply z-transform to the data', type=int, default=0)
-		parser.add_argument('--pca', help='Apply pca for data preprocessing (if pca=0, no pca)', type=int, default=0)
+        parser.add_argument('--normalize', help='Apply z-transform to the data', type=int, default=0)
+        parser.add_argument('--pca', help='Apply pca for data preprocessing (if pca=0, no pca)', type=int, default=0)
 
-		parser.add_argument('--distlocal', help='Distance function (minkowski, cosine)', type=str, default='minkowski')
+        parser.add_argument('--distlocal', help='Distance function (minkowski, cosine)', type=str, default='minkowski')
 
-		parser.add_argument('--distfn', help='Distance function (Euclidean, MFImixSym, MFI, MFIsym)', type=str, default='MFIsym')
-		parser.add_argument('--distr', help='Target distribution (laplace, gaussian, student)', type=str, default='laplace')
-		parser.add_argument('--lossfn', help='Loss funstion (kl, klSym)', type=str, default='klSym')
+        parser.add_argument('--distfn', help='Distance function (Euclidean, MFImixSym, MFI, MFIsym)', type=str, default='MFIsym')
+        parser.add_argument('--distr', help='Target distribution (laplace, gaussian, student)', type=str, default='laplace')
+        parser.add_argument('--lossfn', help='Loss funstion (kl, klSym)', type=str, default='klSym')
 
-		parser.add_argument('--root', help='Get root node from labels', type=str, default="root")
-		parser.add_argument('--iroot', help='Index of the root cell', type=int, default=-1)
-		parser.add_argument('--rotate', help='Rotate', type=int, default=-1)
+        parser.add_argument('--root', help='Get root node from labels', type=str, default="root")
+        parser.add_argument('--iroot', help='Index of the root cell', type=int, default=-1)
+        parser.add_argument('--rotate', help='Rotate', type=int, default=-1)
 
-		parser.add_argument('--knn', help='Number of nearest neighbours in KNN', type=int, default=15)
-		parser.add_argument('--connected', help='Force the knn graph to be connected', type=int, default=1)
+        parser.add_argument('--knn', help='Number of nearest neighbours in KNN', type=int, default=15)
+        parser.add_argument('--connected', help='Force the knn graph to be connected', type=int, default=1)
 
-		parser.add_argument('--sigma', help='Bandwidth in high dimensional space', type=float, default=1.0)
-		parser.add_argument('--gamma', help='Bandwidth in low dimensional space', type=float, default=2.0)
+        parser.add_argument('--sigma', help='Bandwidth in high dimensional space', type=float, default=1.0)
+        parser.add_argument('--gamma', help='Bandwidth in low dimensional space', type=float, default=2.0)
 
-		# optimization parameters
-		parser.add_argument('--lr', help='Learning rate', type=float, default=0.1)
-		parser.add_argument('--lrm', help='Learning rate multiplier', type=float, default=1.0)
-		parser.add_argument('--epochs', help='Number of epochs', type=int, default=5000)
-		parser.add_argument('--batchsize', help='Batchsize', type=int, default=-1)
-		parser.add_argument('--burnin', help='Duration of burnin', type=int, default=500)
+        # optimization parameters
+        parser.add_argument('--lr', help='Learning rate', type=float, default=0.1)
+        parser.add_argument('--lrm', help='Learning rate multiplier', type=float, default=1.0)
+        parser.add_argument('--epochs', help='Number of epochs', type=int, default=5000)
+        parser.add_argument('--batchsize', help='Batchsize', type=int, default=-1)
+        parser.add_argument('--burnin', help='Duration of burnin', type=int, default=500)
 
-		parser.add_argument('--seed', help='Duration of burnin', type=int, default=0)
+        parser.add_argument('--seed', help='Duration of burnin', type=int, default=0)
 
-		parser.add_argument('--earlystop', help='Early stop  of training by epsilon. If 0, continue to max epochs', 
-			type=float, default=0.0001)
+        parser.add_argument('--earlystop', help='Early stop  of training by epsilon. If 0, continue to max epochs', 
+            type=float, default=0.0001)
 
-		parser.add_argument('--debugplot', help='Plot intermidiate embeddings every N iterations', type=int, default=200)
-		
-		parser.add_argument('--cuda', help='Use GPU', type=int, default=1)
+        parser.add_argument('--debugplot', help='Plot intermidiate embeddings every N iterations', type=int, default=200)
+        
+        parser.add_argument('--cuda', help='Use GPU', type=int, default=1)
 
-		parser.add_argument('--logfile', help='Use GPU', type=str, default='Logs')
+        parser.add_argument('--logfile', help='Use GPU', type=str, default='Logs')
 
-		parser.add_argument('--tb', help='Tensor board', type=float, default=0)
+        parser.add_argument('--tb', help='Tensor board', type=float, default=0)
 
-		opt = parser.parse_args()
-				
-		color_dict = None
-		
-		if "celegans" in opt.dset:
-			opt.root = 'Germline'
-			color_dict = color_dict_celegans
+        opt = parser.parse_args()
+                
+        color_dict = None
+        
+        if "celegans" in opt.dset:
+            opt.root = 'Germline'
+            color_dict = color_dict_celegans
 
-		if opt.dset == "ToggleSwitch":
-			opt.root = "root"
+        if opt.dset == "ToggleSwitch":
+            opt.root = "root"
 
-		if "MyeloidProgenitors" in opt.dset:
-			opt.root = "root"
+        if "MyeloidProgenitors" in opt.dset:
+            opt.root = "root"
 
-		if opt.dset == "krumsiek11_blobs":
-			opt.root = "root"
+        if opt.dset == "krumsiek11_blobs":
+            opt.root = "root"
 
-		if "Olsson" in opt.dset:
-			opt.root = "HSPC-1"
-			color_dict = color_dict_olsson
+        if "Olsson" in opt.dset:
+            opt.root = "HSPC-1"
+            color_dict = color_dict_olsson
 
-		if "Paul" in opt.dset:
-			opt.root = "root"
-			if opt.dset == 'Paul_wo_proj':
-				opt.root = "6Ery"
-			color_dict = color_dict_paul
+        if "Paul" in opt.dset:
+            opt.root = "root"
+            if opt.dset == 'Paul_wo_proj':
+                opt.root = "6Ery"
+            color_dict = color_dict_paul
 
-		if opt.dset == "Moignard2015":
-			opt.root = "PS"			
+        if opt.dset == "Moignard2015":
+            opt.root = "PS"         
 
-		if "Planaria" in opt.dset:
-			opt.root = "neoblast 1"
-			color_dict = color_dict_planaria	
+        if "Planaria" in opt.dset:
+            opt.root = "neoblast 1"
+            color_dict = color_dict_planaria    
 
-		# read and preprocess the dataset
-		features, labels = prepare_data(opt.path + opt.dset,
-																		with_labels=opt.labels,
-																		normalize=opt.normalize,
-																		n_pca=opt.pca)
+        # read and preprocess the dataset
+        features, labels = prepare_data(opt.path + opt.dset,
+                                            with_labels=opt.labels,
+                                            normalize=opt.normalize,
+                                            n_pca=opt.pca)
 
-		# compute matrix of RFA similarities
-		RFA = compute_rfa(features, mode=opt.mode,
-											k_neighbours=opt.knn,
-											distfn=opt.distfn,
-											distlocal= opt.distlocal,
-											connected=opt.connected,
-												sigma=opt.sigma)
-
-		if opt.batchsize < 0:
-			opt.batchsize = min(512, int(len(RFA)/10))
-			print('batchsize = ', opt.batchsize)
-			# if opt.dset == "Moignard2015":
-			#     opt.batchsize = 1500
-		opt.lr = opt.batchsize / 16 * opt.lr
+        # compute matrix of RFA similarities
+        
+        # if opt.batchsize < 0:
+        #     opt.batchsize = min(512, int(len(RFA)/10))
+        #     print('batchsize = ', opt.batchsize)
+        #     # if opt.dset == "Moignard2015":
+        #     #     opt.batchsize = 1500
+        # opt.lr = opt.batchsize / 16 * opt.lr
 
 
-		itlename, fout = create_output_name(opt)
+        titlename, fout = create_output_name(opt)
 
-			# PCA of RFA baseline
-			# pca_baseline = PCA(n_components=2).fit_transform(RFA)
-			# plot2D(pca_baseline.T,
-			#        labels,
-			#        fout + '_PCARFA',
-			#        'PCA of RFA\n' + titlename)
-
-		 
-			# build the indexed RFA dataset 
-		indices = torch.arange(len(RFA))
-		if opt.cuda:
-			indices = indices.cuda()
-			RFA = RFA.cuda()
-
-		dataset = TensorDataset(indices, RFA)
-
-		# instantiate our Embedding predictor
-		predictor = PoincareEmbedding(len(dataset),
-																	opt.dim,
-																	dist=PoincareDistance,
-																	max_norm=1,
-																	Qdist=opt.distr, 
-																	lossfn = opt.lossfn,
-																	gamma=opt.gamma,
-																	cuda=opt.cuda)
-
-		# instantiate the Riemannian optimizer 
-		t_start = timeit.default_timer()
-		optimizer = RiemannianSGD(predictor.parameters(), lr=opt.lr)
-
-		# train predictor
-		print('Starting training...')
-		embeddings, loss, epoch = train(predictor,
-														 dataset,
-														 optimizer,
-														 opt,
-														 fout=fout,
-														 labels=labels,
-														 tb=opt.tb,
-														 earlystop=opt.earlystop,
-														 color_dict=color_dict)
-
-		np.savetxt(fout + '.csv', embeddings, delimiter=",")
-
-		t = timeit.default_timer() - t_start
-		titlename = f"loss = {loss:.3e}\ntime = {t/60:.3f} min"
-		print(titlename)
-
-		log_file = f'results/{opt.logfile}.csv'		
-		df_stats = pd.DataFrame(np.array([[opt.dset, opt.pca, opt.knn, opt.sigma, opt.gamma, opt.distlocal, 
-			loss, int(t), int(t/60), opt.seed, opt.cuda, opt.earlystop, epoch]]), 
-			columns = ['dataset', 'pca', 'knn', 'sigma', 'gamma', 'distance',
-			'loss', 'time (sec)', 'time (min)', 'seed', 'cuda', 'earlystop', 'max epochs'])
-
-		if os.path.isfile(log_file):
-			df_logs = pd.read_csv(log_file)
-			df_stats = pd.concat([df_logs, df_stats])
-
-		df_stats.to_csv(f'results/{opt.logfile}.csv', index=False, sep=',')
+        embeddings, titlename = compute_poincare_maps(features, labels, fout,
+                        mode=opt.mode, k_neighbours=opt.knn, 
+                        distlocal=opt.distlocal, sigma=opt.sigma, gamma=opt.gamma,
+                        epochs = opt.epochs,
+                        color_dict=color_dict, debugplot=opt.debugplot,
+                        batchsize=opt.batchsize, lr=opt.lr, burnin=opt.burnin, lrm=opt.lrm, 
+                        earlystop=opt.earlystop, cuda=opt.cuda)
 
 
-		color_dict = plotPoincareDisc(embeddings.T,
-												 labels,
-												 fout,
-												 titlename,
-												 color_dict=color_dict)
 
-		# rotation
-		root_hat = poincare_root(opt, labels, features)   
-		print('Root:', root_hat)
-		if root_hat != -1:
-				titlename = '{0}\nloss = {1:.3e} rotated'.format(titlename, loss)
+            # PCA of RFA baseline
+            # pca_baseline = PCA(n_components=2).fit_transform(RFA)
+            # plot2D(pca_baseline.T,
+            #        labels,
+            #        fout + '_PCARFA',
+            #        'PCA of RFA\n' + titlename)
 
-				poincare_coord_new = poincare_translation(
-						-embeddings[root_hat, :], embeddings)
+         
+            # build the indexed RFA dataset 
+        # indices = torch.arange(len(RFA))
+        # if opt.cuda:
+        #     indices = indices.cuda()
+        #     RFA = RFA.cuda()
 
-				plot_poincare_disc(poincare_coord_new,
-													 labels=labels,
-													 coldict=color_dict,
-													 file_name=fout + '_rotated', d1=9.5, d2=9.0)
-		else:
-			print("Can't perform rotation. Root node is not found.")
+        # dataset = TensorDataset(indices, RFA)
+
+        # # instantiate our Embedding predictor
+        # predictor = PoincareEmbedding(len(dataset),
+        #                                                             opt.dim,
+        #                                                             dist=PoincareDistance,
+        #                                                             max_norm=1,
+        #                                                             Qdist=opt.distr, 
+        #                                                             lossfn = opt.lossfn,
+        #                                                             gamma=opt.gamma,
+        #                                                             cuda=opt.cuda)
+
+        # # instantiate the Riemannian optimizer 
+        # t_start = timeit.default_timer()
+        # optimizer = RiemannianSGD(predictor.parameters(), lr=opt.lr)
+
+        # # train predictor
+        # print('Starting training...')
+        # embeddings, loss, epoch = train(predictor,
+        #                                                  dataset,
+        #                                                  optimizer,
+        #                                                  opt,
+        #                                                  fout=fout,
+        #                                                  labels=labels,
+        #                                                  earlystop=opt.earlystop,
+        #                                                  color_dict=color_dict)
+
+        np.savetxt(fout + '.csv', embeddings, delimiter=",")
+
+        # log_file = f'results/{opt.logfile}.csv'     
+        # df_stats = pd.DataFrame(np.array([[opt.dset, opt.pca, opt.knn, opt.sigma, opt.gamma, opt.distlocal, 
+        #     loss, int(t), int(t/60), opt.seed, opt.cuda, opt.earlystop, epoch]]), 
+        #     columns = ['dataset', 'pca', 'knn', 'sigma', 'gamma', 'distance',
+        #     'loss', 'time (sec)', 'time (min)', 'seed', 'cuda', 'earlystop', 'max epochs'])
+
+        # if os.path.isfile(log_file):
+        #     df_logs = pd.read_csv(log_file)
+        #     df_stats = pd.concat([df_logs, df_stats])
+
+        # df_stats.to_csv(f'results/{opt.logfile}.csv', index=False, sep=',')
+
+
+        color_dict = plotPoincareDisc(embeddings.T,
+                                                 labels,
+                                                 fout,
+                                                 titlename,
+                                                 color_dict=color_dict)
+
+        # rotation
+        root_hat = poincare_root(opt.root, labels, features)   
+        print('Root:', root_hat)
+        if root_hat != -1:
+                titlename = '{0} rotated'.format(titlename)
+
+                poincare_coord_new = poincare_translation(
+                        -embeddings[root_hat, :], embeddings)
+
+                plot_poincare_disc(poincare_coord_new,
+                                                     labels=labels,
+                                                     coldict=color_dict,
+                                                     file_name=fout + '_rotated', d1=9.5, d2=9.0)
+        else:
+            print("Can't perform rotation. Root node is not found.")
