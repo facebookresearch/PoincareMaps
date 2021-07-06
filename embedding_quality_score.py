@@ -2,187 +2,171 @@ import numpy as np
 from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
 from poincare_maps import *
-import timeit
 
 from sklearn.utils.graph_shortest_path import graph_shortest_path
 from scipy.sparse import csgraph
 from sklearn.neighbors import kneighbors_graph
-
 from data import connect_knn
 
-
-def get_scalars(qs):
-	lcmc = np.copy(qs)
-	N = len(qs)
-	for j in range(N):
-		lcmc[j] = lcmc[j] - j/N    
-	K_max = np.argmax(lcmc) + 1
-
-	Qlocal = np.mean(qs[:K_max])
-	Qglobal = np.mean(qs[K_max:])
-
-	return Qlocal, Qglobal, K_max
-
-def get_rank_high(data, k_neighbours = 15, knn_sym=True):
-	# computes ranking of the original dataset through geodesic distances
-	KNN = kneighbors_graph(data, k_neighbours,
-						   mode='distance', 
-						   include_self=False).toarray()
-	if knn_sym:
-		KNN = np.maximum(KNN, KNN.T)
-
-	n_components, labels = csgraph.connected_components(KNN)
-	print(n_components)
-	D_high = graph_shortest_path(KNN)
-
-	if n_components:
-		max_dist = np.max(D_high)*10
-		for comp in np.unique(labels):
-			ix_comp = np.where(labels == comp)[0]
-			ix_not_comp = np.where(labels != comp)[0]
-			for i in ix_comp:
-				for j in ix_not_comp:
-					D_high[i, j] = max_dist
-					D_high[j, i] = max_dist
-
-	Rank_high = get_ranking(D_high)
-	
-	return Rank_high
-
-
-# def get_rank_high(data, k_neighbours = 15, knn_sym=True):
-# 	# computes ranking of the original dataset through geodesic distances
-# 	KNN = kneighbors_graph(data, k_neighbours,
-# 						   mode='distance', 
-# 						   include_self=False).toarray()
-# 	if knn_sym:
-# 		KNN = np.maximum(KNN, KNN.T)
-
-# 	n_components, labels = csgraph.connected_components(KNN)
-
-# 	if (n_components > 1):
-# 			print('Connecting', n_components)
-# 			distances = pairwise_distances(data, metric='euclidean')
-# 			KNN = connect_knn(KNN, distances, n_components, labels)
-	
-# 	D_high = graph_shortest_path(KNN)
-# 	Rank_high = get_ranking(D_high)
-	
-# 	return Rank_high
-
-def get_ranking(D):
-	start = timeit.default_timer()
-	n = len(D)
-
-	Rank = np.zeros([n, n])
-	for i in range(n):
-		# tmp = D[i, :10]
-		idx = np.array(list(range(n)))
+def get_dist_manifold(data, k_neighbours = 20, knn_sym=True):
+    """
+    Computes ranking of the original dataset through geodesic distances:
+    we estimate KNN graph and find shortest distance on it. The geodesic
+    distance between disconnected componenents is set to infinity.
+    """
+    KNN = kneighbors_graph(
+        data, k_neighbours, mode='distance', include_self=False).toarray()
+    if knn_sym:
+        KNN = np.maximum(KNN, KNN.T)
         
-		sidx = np.argsort(D[i, :])
-		Rank[i, idx[sidx][1:]] = idx[1:]-np.ones(n-1)
-
-	print(f"Ranking: time = {(timeit.default_timer() - start):.1f} sec")
-	return Rank
-
-# def get_ranking(D):
-# 	start = timeit.default_timer()
-# 	n = len(D)
-
-# 	Rank = np.zeros([n, n])
-# 	for i in range(n):
-# 		# tmp = D[i, :10]
-# 		idx = list(range(n))
-# 		sidx = np.argsort(D[i, :])
-# 		for c, j in enumerate(sidx):
-# 			Rank[i, idx[j]] = c
-# 	print(f"Ranking: time = {(timeit.default_timer() - start):.3f} sec")
-# 	return Rank	
+    n_components, labels = csgraph.connected_components(KNN)
+    
+    if (n_components > 1):
+        print('Connecting', n_components)
+        distances = pairwise_distances(data, metric='euclidean')
+        KNN = connect_knn(KNN, distances, n_components, labels)
+    
+    D_high = graph_shortest_path(KNN)
+    return D_high
 
 
-def Tk(M, T = "lower"):    
-	c = 0
-	for i in range(len(M)):
-		for j in range(i+1, len(M)):
-			if T == "lower":
-				c += M[j, i]
-			if T == "upper":
-				c += M[i, j]
+def get_ranking(distance_matrix):
+    """
+    Get ranking from distance matrix: from Supplementary eq. (2)-(3) 
+    in Klimovskaia et al.
+    """
+    # According to this definition, reflexive ranks are set
+    # to zero and non-reflexive ranks belong to {1,.., N − 1}.
+    n = len(distance_matrix)
+    Rank = np.zeros([n, n])
+    for i in range(n):
+        idx = np.array(list(range(n)))        
+        sidx = np.argsort(distance_matrix[i, :])
+        Rank[i, idx[sidx][1:]] = idx[1:]
 
-	return(c)
+    return Rank
 
-
-# def get_coRanking(Rank_high, Rank_low):
-
-# 	n = len(Rank_high)
-# 	coRank = np.zeros([n-1, n-1])
-
-# 	for k in range(n-1):
-# 		for l in range(n-1):
-# 			coRank[k, l] = len(np.where((Rank_high == (k+1)) & (Rank_low == (l+1)))[0])
-	
-# 	return coRank
 
 def get_coRanking(Rank_high, Rank_low):
-	start = timeit.default_timer()
-	n = len(Rank_high)
-	coRank = np.zeros([n-1, n-1])
+    """
+    Computes co-ranking matrix Q from Supplementary eq. (4) in Klimovskaia et al.
+    """
+    N = len(Rank_high)
+    coRank = np.zeros([N-1, N-1])
 
-	for i in range(n):
-		for j in range(n):
-			k = int(Rank_high[i, j])
-			l = int(Rank_low[i, j])
-			if (k > 0) and (l > 0):
-				coRank[k-1][l-1] += 1
-	
-	print(f"Co-ranking: time = {(timeit.default_timer() - start):.2f} sec")
-	return coRank
+    for i in range(N):
+        for j in range(N):
+            k = int(Rank_high[i, j])
+            l = int(Rank_low[i, j])
+            if (k > 0) and (l > 0):
+                coRank[k-1][l-1] += 1
+    
+    return coRank
 
 
-def get_score(Rank_high, Rank_low, fname=None):	
-	coRank = get_coRanking(Rank_high, Rank_low)
-	start = timeit.default_timer()
-	n = len(Rank_high) + 1
+def get_score(Rank_high, Rank_low, fname=None):     
+    """
+    Computes Qnx scores from Supplementary eq. (5) in Klimovskaia et al.
+    """
+    coRank = get_coRanking(Rank_high, Rank_low)
+    N = len(coRank)+1
 
-	df_score = pd.DataFrame(columns=['Qnx', 'Bnx'])
+    df_score = pd.DataFrame(columns=['Qnx', 'Bnx'])
+    Qnx = 0
+    Bnx = 0
+    for K in range(1, N):
+        Qnx += sum(coRank[:K, K-1]) + sum(coRank[K-1, :K]) - coRank[K-1, K-1]
+        Bnx += sum(coRank[:K, K-1]) - sum(coRank[K-1, :K])
+        df_score.loc[len(df_score)] = [Qnx /(K*N), Bnx/(K*N)]
 
-	Qnx = 0
-	Bnx = 0
-	for K in range(1, n-1):
-		Fk = list(range(K))
+    if not (fname is None):
+        df_score.to_csv(fname, sep = ',', index=False)
+    
+    return df_score
 
-		Qnx += sum(coRank[:K, K-1]) + sum(coRank[K-1, :K]) - coRank[K-1, K-1]
-		Bnx += sum(coRank[:K, K-1]) - sum(coRank[K-1, :K])
 
-		df_score.loc[len(df_score)] = [Qnx /(K*n), Bnx/(K*n)]
+def get_scalars(Qnx):
+    """
+    Computes scalar scores from Supplementary eq. (6)-(8) in Klimovskaia et al.
+    """
+    N = len(Qnx) # total length of Qnx is smaller than number of samples
+    K_max = 0
+    val_max = Qnx[0] - 1/N
+    for k in range(1, N):
+        if val_max < (Qnx[k] - (k+1)/N):
+            val_max = Qnx[k] - (k+1)/N
+            K_max = k
 
-	if not (fname is None):
-		df_score.to_csv(fname, sep = ',', index=False)
+    Qlocal = np.mean(Qnx[:K_max+1])
+    Qglobal = np.mean(Qnx[K_max:])
 
-	# print(df_score.mean()[['Qnx', 'Bnx']])
-	Qlocal, Q_global, Kmax = get_scalars(df_score['Qnx'].values)
-	print(f"Qlocal = {Qlocal:.2f}, Q_global = {Q_global:.2f}, Kmax = {Kmax}")
-	print(f"Time = {(timeit.default_timer() - start):.2f} sec")
-	return df_score
+    return Qlocal, Qglobal, K_max
 
-def get_quality_metrics(coord_high, coord_low, distance='E', fname=None):
-	D_high = pairwise_distances(coord_high)
-	
-	if distance == 'E':		
-		D_low = pairwise_distances(coord_low)
 
-	if distance == 'P':
-		print('Poincaré space')		
-		model = PoincareMaps(coord_low)
-		model.get_distances()
-		D_low = model.distances
+def get_quality_metrics(    
+    coord_high, 
+    coord_low,
+    distance='euclidean',    
+    setting='manifold',
+    fname=None,
+    k_neighbours=20,
+    verbose=False):
+    """
+    Implementation of 'Scale-independent quality criteria' from Lee et al.    
+    Parameters
+    ----------
+    coord_high : np.array
+        Feature matrix of the sample in the high dimensional space.
+    coord_low : np.array
+        Low dimensional embedding of the sample.
+    distance : str (default: 'euclidean')
+        Distance metric to compute distanced between points in low dimendional 
+        space. Possible parameters: 'euclidean' or 'poincare'.
+    setting: str (default: 'manifold')
+        Setting to compute distances in the high dimensional space: 'global'
+        distances or distances on the 'manifold' using a k=20 KNN graph.
+    fname: str, optional (default: None)
+        Name of the file where to save all the information about the metrics.
+    verbose: bool (default: False)
+        A flag if to print the results of the computations.    
+    k_neighbours: int (default: 20)
+        k-nearest neighbours for setting
+    Returns
+    -------
+    Qlocal: float
+        Quality criteria for local qualities of the embedding.
+        Range from 0 (bad) to 1 (good).
+    Qglobal: float
+        Quality criteria for global qualities of the embedding.
+        Range from 0 (bad) to 1 (good).
+    Kmax: int
+        Kmax defines the split of the QNX curv.
+    """
 
-	Rank_high = get_ranking(D_high)
-	print('Rank high')
+    if setting == 'global':
+        D_high = pairwise_distances(coord_high)        
+    elif setting == 'manifold':
+        D_high = get_dist_manifold(
+            coord_high, k_neighbours=k_neighbours, knn_sym=True)
+    else:
+        raise NotImplementedError
 
-	Rank_low = get_ranking(D_low)
-	print('Rank low')
+    Rank_high = get_ranking(D_high)
 
-	df_score = get_score(Rank_high, Rank_low, fname=fname)
+    if distance == 'euclidean':     
+        D_low = pairwise_distances(coord_low)
+    elif distance == 'poincare':
+        model = PoincareMaps(coord_low)
+        model.get_distances()
+        D_low = model.distances    
+    else:
+        raise NotImplementedError
 
-	return df_score
+    Rank_low = get_ranking(D_low)
+    df_score = get_score(Rank_high, Rank_low, fname=fname)
+
+    Qlocal, Qglobal, Kmax = get_scalars(df_score['Qnx'].values)
+    if verbose:
+        print(f"Qlocal = {Qlocal:.2f}, Qglobal = {Qglobal:.2f}, Kmax = {Kmax}")
+
+    return Qlocal, Qglobal, Kmax
