@@ -48,7 +48,7 @@ def plot_training(loss_func, title_name=None, file_name=None, d1=4, d2=4, fs=11)
   plt.show()
 
   if file_name:
-    plt.savefig(file_name + '.pdf', format='pdf')
+    plt.savefig(file_name + '.png', format='png')
   plt.close(fig)
 
 
@@ -78,7 +78,7 @@ def plot_poincare_disc(x, labels=None, labels_name='labels', labels_order=None,
                         alpha=1.0, edgecolor="none",
                         data=df, ax=ax, s=ms)
 
-        ax.legend(fontsize=fs, loc='outside', bbox_to_anchor=bbox)
+        ax.legend(fontsize=fs, loc='best', bbox_to_anchor=bbox)
             
     else:
         sns.scatterplot(x="pm1", y="pm2",
@@ -97,7 +97,7 @@ def plot_poincare_disc(x, labels=None, labels_name='labels', labels_order=None,
 
 
     if file_name:
-        plt.savefig(file_name + '.pdf', format='pdf')
+        plt.savefig(file_name + '.png', format='png')
 
     plt.close(fig)
 
@@ -190,7 +190,7 @@ def plotPoincareDisc(x,
     plt.tight_layout()
 
     if file_name:
-        plt.savefig(file_name + '.pdf', format='pdf')
+        plt.savefig(file_name + '.png', format='png')
 
     if show:
         plt.show()
@@ -237,7 +237,7 @@ def plot2D(x,
                bbox_to_anchor=(1, 0.5), fontsize=fs)
 
     if file_name:
-        plt.savefig(file_name + '.pdf', format='pdf')
+        plt.savefig(file_name + '.png', format='png')
 
     if show:
         plt.show()

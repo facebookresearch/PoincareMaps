@@ -9,7 +9,7 @@ python3.7
 anaconda (sklearn, numpy, pandas, scipy)
 seaborn
 
-Pytorch (pytorch 1.3.1): https://pytorch.org/get-started/locally/
+Pytorch (pytorch 1.7.1): https://pytorch.org/get-started/locally/
 
 
 ## To replicate our experiments

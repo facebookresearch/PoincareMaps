@@ -20,7 +20,7 @@ import torch as th
 from fastdtw import fastdtw
 from coldict import *
 from scipy.spatial.distance import euclidean
-import scanpy.api as sc
+import scanpy as sc
 
 
 sns.set_style('white', {'legend.frameon':True})
@@ -541,7 +541,15 @@ def poincare_linspace(u, v, n_points=175):
 
 
 
-def init_scanpy(data, col_names, head_name, true_labels, fin, k=30, n_pcs=20, computeEmbedding=True):
+def init_scanpy(
+    data,
+    col_names, 
+    head_name,
+    true_labels,
+    fin, k=30,
+    n_pcs=20,
+    computeEmbedding=True):
+
     head_idx = np.where(true_labels == head_name)[0]
     if len(head_idx) > 1:
         D = pairwise_distances(data[head_idx, :], metric='euclidean')
@@ -559,27 +567,26 @@ def init_scanpy(data, col_names, head_name, true_labels, fin, k=30, n_pcs=20, co
             sc.pp.neighbors(adata, n_neighbors=k, n_pcs=n_pcs)
         else:
             sc.pp.neighbors(adata, n_neighbors=k)
-        
-    
+                
+        sc.tl.diffmap(adata)
+        sc.tl.tsne(adata)
+        sc.tl.umap(adata)
+        sc.tl.pca(adata, n_comps=2, svd_solver='auto')
+
         sc.tl.louvain(adata, resolution=0.9)
         louvain_labels = np.array(list(adata.obs['louvain']))
         
         sc.tl.paga(adata)
         sc.tl.draw_graph(adata)
-        sc.tl.diffmap(adata)
-        sc.tl.tsne(adata)
-        sc.tl.umap(adata)
-        sc.tl.pca(adata, n_comps=2)
-
         sc.pl.paga(adata)
         sc.tl.draw_graph(adata, init_pos='paga')
     else:
         louvain_labels = []
 
     sc.settings.figdir = fin
-    sc.settings.autosave = True
+    sc.settings.autosave = True    
     # sc.settings.set_figure_params(dpi=80, dpi_save=300, color_map='Set1', format='pdf')
-    sc.settings.set_figure_params(dpi=80, dpi_save=300, format='pdf')
+    sc.settings.set_figure_params(dpi=80, dpi_save=300, format='png')
         
     return adata, iroot, louvain_labels
 
@@ -631,13 +638,30 @@ def plotBenchamrk(adata, true_labels, fname_benchmark, method='X_draw_graph_fa',
     plt.show()
 
 
+def getBenchmarks(adata, methods=['X_pca', 'X_tsne', 'X_umap', 'X_diffmap', 'X_draw_graph_fa']):
+    title_name_dict = {'X_pca': 'PCA',
+                        'X_tsne': 'tSNE',
+                        'X_umap': 'UMAP', 
+                       'X_diffmap': 'DiffusionMaps', 
+                       'X_draw_graph_fa': 'ForceAtlas2'}
+
+    benchmark_embedding = {}
+    for method in methods:
+        if method == 'X_diffmap':
+            x=adata.obsm[method][:, 1:3]
+        else:
+            x=adata.obsm[method]
+        benchmark_embedding[title_name_dict[method]] = x
+
+    return benchmark_embedding
+
 def plotBenchamrks(adata, true_labels, fname_benchmark, pl_size=2.4, n1=2, n2=3, ms=3, fs=9, coldict=None, methods=['X_pca', 'X_umap', 'X_draw_graph_fa']):
     labels_order=np.unique(true_labels)
     if coldict is None:
         coldict = dict(zip(labels_order, colors_palette[:len(labels_order)]))
 
     fig, axs = plt.subplots(n1, n2, sharex=False, sharey=False, figsize=(n2*pl_size, n1*pl_size))
-    methods=['X_pca', 'X_tsne', 'X_umap', 'X_diffmap', 'X_draw_graph_fa']
+    # methods=['X_pca', 'X_tsne', 'X_umap', 'X_diffmap', 'X_draw_graph_fa']
     title_name_dict = {'X_pca': 'PCA',
                         'X_tsne': 'tSNE',
                         'X_umap': 'UMAP', 
@@ -645,6 +669,7 @@ def plotBenchamrks(adata, true_labels, fname_benchmark, pl_size=2.4, n1=2, n2=3,
                        'X_draw_graph_fa': 'ForceAtlas2'}
 
     l=0
+    benchmark_embedding = {}
     for i in range(n1):
         for j in range(n2):
             if l < len(methods):
@@ -655,6 +680,7 @@ def plotBenchamrks(adata, true_labels, fname_benchmark, pl_size=2.4, n1=2, n2=3,
                     x=adata.obsm[method][:, 1:3]
                 else:
                     x=adata.obsm[method]
+                benchmark_embedding[title_name_dict[method]] = x
                 idx = np.random.permutation(len(x))
                 df = pd.DataFrame(x[idx, :], columns=axs_names)
                 df['labels'] = true_labels[idx]
@@ -681,7 +707,8 @@ def plotBenchamrks(adata, true_labels, fname_benchmark, pl_size=2.4, n1=2, n2=3,
     fig.tight_layout()        
     plt.savefig(fname_benchmark + 'benchmarks.pdf', format='pdf')
     plt.show()
-    
+
+    return benchmark_embedding
 
 
 def read_data(fin, with_labels=True, normalize=False, n_pca=20):
@@ -718,6 +745,7 @@ def read_data(fin, with_labels=True, normalize=False, n_pca=20):
         nc = min(n_pca, n)
         pca = PCA(n_components=nc)
         x = pca.fit_transform(x)
+        colnames = [f'PC{i+1}' for i in range(n_pca)]
 
     labels = np.array([str(s) for s in labels])
 
